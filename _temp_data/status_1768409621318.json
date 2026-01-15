@@ -1,1 +1,0 @@
-{"status":"failed","error":"Command failed: osascript -e 'tell application \"Adobe After Effects 2024\"\n  activate\n  DoScript \"$.evalFile(\\\"/Users/francesco.cerisano/Documents/ai-campaign-manager/_scripts/render_script.jsx\\\")\"\nend tell'\n66:67: syntax error: Expected end of line, etc. but found “\"”. (-2741)\n","completed_at":1768409621448}

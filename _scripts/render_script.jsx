@@ -1,3 +1,4 @@
+
 // render_script.jsx - VERSIONE FINALE CON JSON MANUALE
 
 (function() {
@@ -5,7 +6,7 @@
 var statusPath = "";
 
 function log(msg) {
-    var f = new File("/Users/francesco.cerisano/Documents/ai-campaign-manager/_temp_data/production_log.txt");
+    var f = new File("/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/production_log.txt");
     f.open("a");
     f.writeln("[" + new Date().toTimeString().substring(0,8) + "] " + msg);
     f.close();
@@ -57,7 +58,7 @@ function updateStatus(progress, status, error) {
 
 try {
     // --- 1. CONFIGURAZIONE ---
-    var baseFolder = "/Users/francesco.cerisano/Documents/ai-campaign-manager";
+    var baseFolder = "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE";
     var jsonPath = baseFolder + "/_temp_data/job_data.json";
     var templatePath = baseFolder + "/_templates/ALIEXPRESS_MASTER.aep";
     
@@ -250,13 +251,13 @@ try {
     
     app.project.renderQueue.render();
     
-       log("Render completato!");
+    log("Render completato!");
     updateStatus(100, "completed");
     
     // Scrivi status finale con path /api/output/
     var finalStatus = new File(statusPath);
     finalStatus.open("w");
-    var finalVideoName = "output_" + data.job_id + ".mov";
+    var finalVideoName = "output_" + data.job_id + ".mp4";
     var finalObj = {
         status: "completed",
         progress: 100,
@@ -267,6 +268,12 @@ try {
     finalStatus.close();
     
     log("Status finale scritto con output_path: /api/output/" + finalVideoName);
+    
+    // *** FIX: CHIUDI PROGETTO E QUIT ***
+    app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
+    log("Progetto chiuso senza salvare");
+    app.quit();
+    log("After Effects chiuso");
 
 } catch (e) {
     var errorMsg = e.toString() + " (Linea: " + e.line + ")";

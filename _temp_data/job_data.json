@@ -1,13 +1,13 @@
 {
-  "job_id": "1768412863686",
-  "product_name": "de boiaaaaaa",
+  "job_id": "1768472253127",
+  "product_name": "asdcada",
   "hero_lines": [
     {
-      "text": "boiadeeeee",
+      "text": "sasdasdadad",
       "is_bold": true
     }
   ],
-  "video_path": "/Users/francesco.cerisano/Documents/ai-campaign-manager/_temp_data/input_1768412863686.mp4",
-  "output_path": "/Users/francesco.cerisano/Documents/ai-campaign-manager/_output/output_1768412863686.mov",
-  "timestamp": "2026-01-14T17:47:43.701Z"
+  "video_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/input_1768472253127.mp4",
+  "output_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_output/output_1768472253127.mp4",
+  "timestamp": "2026-01-15T10:17:33.139Z"
 }
