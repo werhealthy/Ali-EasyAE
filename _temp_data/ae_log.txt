@@ -1,0 +1,1 @@
+[12:37:18] >>> SCRIPT AVVIATO DA APPLESCRIPT <<<[12:37:18] Dati letti: Test AppleScript[12:37:19] Progetto aperto.[12:37:19] Inizio render: /Users/francesco.cerisano/Documents/ai-campaign-manager/_output/Render_AppleScript_1768390639345.mov[12:37:19] Render Finito.[12:37:19] Script terminato.
