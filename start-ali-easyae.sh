@@ -5,7 +5,8 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-PROJECT_DIR="/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE"
+# Directory del progetto = cartella dove sta questo file
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo -e "${GREEN}🚀 Avvio Ali-EasyAE...${NC}"
 echo ""

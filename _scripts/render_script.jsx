@@ -1,15 +1,31 @@
-
-// render_script.jsx - VERSIONE FINALE CON JSON MANUALE
+// render_script.jsx - VERSIONE FINALE (NO HARDCODE PATH)
 
 (function() {
 
 var statusPath = "";
+var baseFolder = "";
+
+// 🔥 Base folder auto: risaliamo da .../_scripts/render_script.jsx a .../Ali-EasyAE
+function computeBaseFolder() {
+    try {
+        var scriptFile = new File($.fileName);
+        // parent = _scripts, parent.parent = root progetto
+        return scriptFile.parent.parent.fsName;
+    } catch(e) {
+        return "";
+    }
+}
 
 function log(msg) {
-    var f = new File("/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/production_log.txt");
-    f.open("a");
-    f.writeln("[" + new Date().toTimeString().substring(0,8) + "] " + msg);
-    f.close();
+    try {
+        var logPath = baseFolder + "/_temp_data/production_log.txt";
+        var f = new File(logPath);
+        f.open("a");
+        f.writeln("[" + new Date().toTimeString().substring(0,8) + "] " + msg);
+        f.close();
+    } catch(e) {
+        // se log fallisce, non bloccare lo script
+    }
 }
 
 // Funzione per convertire oggetto in JSON (compatibile ES3)
@@ -19,7 +35,7 @@ function toJSON(obj) {
         if (obj.hasOwnProperty(key)) {
             var value = obj[key];
             var jsonValue;
-            
+
             if (typeof value === "string") {
                 jsonValue = '"' + value.replace(/"/g, '\\"') + '"';
             } else if (typeof value === "number" || typeof value === "boolean") {
@@ -29,7 +45,7 @@ function toJSON(obj) {
             } else {
                 jsonValue = '""';
             }
-            
+
             parts.push('"' + key + '":' + jsonValue);
         }
     }
@@ -46,7 +62,7 @@ function updateStatus(progress, status, error) {
             started_at: new Date().getTime()
         };
         if (error) statusObj.error = error;
-        
+
         statusFile.open("w");
         statusFile.write(toJSON(statusObj));
         statusFile.close();
@@ -58,10 +74,14 @@ function updateStatus(progress, status, error) {
 
 try {
     // --- 1. CONFIGURAZIONE ---
-    var baseFolder = "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE";
+    baseFolder = computeBaseFolder();
+    if (!baseFolder) {
+        alert("ERRORE: impossibile determinare baseFolder");
+        return;
+    }
+
     var jsonPath = baseFolder + "/_temp_data/job_data.json";
-    var templatePath = baseFolder + "/_templates/ALIEXPRESS_MASTER.aep";
-    
+
     var FONT_BOLD = "AliExpresssans-Blod";
     var FONT_REGULAR = "AliExpresssans-Regular";
     var SPAZIATURA_Y = 90;
@@ -71,9 +91,9 @@ try {
 
     // --- 2. LETTURA DATI ---
     var jsonFile = new File(jsonPath);
-    if (!jsonFile.exists) { 
-        alert("ERRORE: JSON non trovato"); 
-        return; 
+    if (!jsonFile.exists) {
+        alert("ERRORE: JSON non trovato in " + jsonPath);
+        return;
     }
 
     jsonFile.open("r");
@@ -87,19 +107,22 @@ try {
         alert("ERRORE NEL JSON: " + e.toString());
         return;
     }
-    
-    // Imposta status path basato su job_id
+
+    // Status path basato su job_id
     statusPath = baseFolder + "/_temp_data/status_" + data.job_id + ".json";
-    log("JSON caricato: " + data.product_name + ", job_id: " + data.job_id);
-    
+    log("JSON caricato. job_id: " + data.job_id);
+
     updateStatus(15, "rendering");
+
+    // Template path: se arriva dal job lo usiamo, altrimenti fallback vecchio
+    var templatePath = data.template_aep_path || (baseFolder + "/_templates/ALIEXPRESS_MASTER.aep");
 
     // --- 3. APERTURA PROGETTO ---
     var tplFile = new File(templatePath);
-    if (!tplFile.exists) { 
-        alert("ERRORE: File AEP non trovato in " + templatePath); 
+    if (!tplFile.exists) {
+        alert("ERRORE: File AEP non trovato in " + templatePath);
         updateStatus(0, "failed", "Template AEP non trovato");
-        return; 
+        return;
     }
 
     if (app.project && app.project.file && app.project.file.toString() !== templatePath.toString()) {
@@ -108,17 +131,17 @@ try {
 
     app.open(tplFile);
     var comp = app.project.activeItem || app.project.item(1);
-    
+
     updateStatus(25, "rendering");
 
     // --- 4. SOSTITUZIONE VIDEO ---
     if (data.video_path) {
         log("Inizio sostituzione video: " + data.video_path);
         updateStatus(30, "rendering");
-        
+
         var videoLayerNames = ["INPUT_VIDEO", "input.mp4", "input", "VIDEO_BG", "background"];
         var videoLayer = null;
-        
+
         for (var v = 0; v < videoLayerNames.length; v++) {
             try {
                 videoLayer = comp.layer(videoLayerNames[v]);
@@ -128,11 +151,11 @@ try {
                 }
             } catch(e) {}
         }
-        
+
         if (videoLayer) {
             try {
                 var newVideoFile = new File(data.video_path);
-                
+
                 if (newVideoFile.exists) {
                     var importedVideo = app.project.importFile(new ImportOptions(newVideoFile));
                     videoLayer.replaceSource(importedVideo, false);
@@ -176,17 +199,17 @@ try {
     }
 
     log("Inizio generazione " + data.hero_lines.length + " righe");
-    
+
     var startPos = heroLayer.position.value;
     var startTime = heroLayer.startTime;
     heroLayer.enabled = false;
 
     for (var i = 0; i < data.hero_lines.length; i++) {
         var lineData = data.hero_lines[i];
-        
+
         var textContent = "";
         var useBold = true;
-        
+
         if (typeof lineData === "string") {
             textContent = lineData;
         } else if (typeof lineData === "object" && lineData !== null) {
@@ -201,7 +224,7 @@ try {
         newLayer.enabled = true;
 
         var textProp = newLayer.property("Source Text");
-        
+
         try {
             var textDoc = textProp.value;
             textDoc.text = textContent;
@@ -227,7 +250,7 @@ try {
                 myMasks.property(m).remove();
             }
         }
-        
+
         var progressRighe = 50 + Math.floor((i / data.hero_lines.length) * 15);
         updateStatus(progressRighe, "rendering");
     }
@@ -242,19 +265,19 @@ try {
 
     var rqItem = app.project.renderQueue.items.add(comp);
     var outputModule = rqItem.outputModule(1);
-    
-    var outputPath = data.output_path || (baseFolder + "/_output/output_" + data.job_id + ".mov");
+
+    var outputPath = data.output_path || (baseFolder + "/_output/output_" + data.job_id + ".mp4");
     outputModule.file = new File(outputPath);
-    
+
     log("Render avviato: " + outputPath);
     updateStatus(75, "rendering");
-    
+
     app.project.renderQueue.render();
-    
+
     log("Render completato!");
     updateStatus(100, "completed");
-    
-    // Scrivi status finale con path /api/output/
+
+    // Status finale con path /api/output/
     var finalStatus = new File(statusPath);
     finalStatus.open("w");
     var finalVideoName = "output_" + data.job_id + ".mp4";
@@ -266,10 +289,10 @@ try {
     };
     finalStatus.write(toJSON(finalObj));
     finalStatus.close();
-    
+
     log("Status finale scritto con output_path: /api/output/" + finalVideoName);
-    
-    // *** FIX: CHIUDI PROGETTO E QUIT ***
+
+    // Chiudi senza salvare
     app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
     log("Progetto chiuso senza salvare");
     app.quit();

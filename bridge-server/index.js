@@ -3,7 +3,9 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
+
+require('dotenv').config();
 
 const app = express();
 const PORT = 3001;
@@ -11,31 +13,104 @@ const PORT = 3001;
 app.use(cors());
 app.use(bodyParser.json());
 
-const BASE_FOLDER = '/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE';
+const BASE_FOLDER = process.env.EASYAE_BASE || '/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE';
+const AE_APP = process.env.AE_APP || 'Adobe After Effects 2025';
 const SCRIPT_PATH = path.join(BASE_FOLDER, '_scripts/render_script.jsx');
+const ALIFIND_SCRIPT_PATH = path.join(BASE_FOLDER, '_scripts/render_alifind.jsx');
 const TEMP_DATA_DIR = path.join(BASE_FOLDER, '_temp_data');
 const OUTPUT_DIR = path.join(BASE_FOLDER, '_output');
+const TEMPLATES_DIR = path.join(BASE_FOLDER, '_templates');
+const ALIFIND_TEMPLATES_DIR = path.join(BASE_FOLDER, '_templates', 'ALIFIND');
+const ALIFIND_AEP_PATH = path.join(ALIFIND_TEMPLATES_DIR, 'AliExpress_alifinds.aep');
 const UPLOADS_DIR = path.join(BASE_FOLDER, 'web-ui/public/uploads');
 
 [TEMP_DATA_DIR, OUTPUT_DIR].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
+
+// ✅ FUNZIONE REMOVE BACKGROUND
+function removeBackground(inputPath, outputPath) {
+  try {
+    const pythonScript = path.join(__dirname, 'remove_bg.py');
+    
+    if (!fs.existsSync(pythonScript)) {
+      console.error('⚠️ remove_bg.py non trovato, skip remove BG');
+      return false;
+    }
+    
+    console.log(`🎨 Rimozione background: ${path.basename(inputPath)}...`);
+    
+    execSync(`python3 "${pythonScript}" "${inputPath}" "${outputPath}"`, {
+      stdio: 'inherit',
+      timeout: 30000
+    });
+    
+    if (fs.existsSync(outputPath)) {
+      console.log(`✅ Background rimosso: ${path.basename(outputPath)}`);
+      return true;
+    } else {
+      console.error('⚠️ Output non creato, fallback su immagine originale');
+      return false;
+    }
+  } catch (error) {
+    console.error(`⚠️ Errore remove BG: ${error.message}`);
+    return false;
+  }
+}
+
+// ✅ NUOVO ENDPOINT: Remove BG (chiamato dalla UI durante upload)
+app.post('/remove-bg', (req, res) => {
+  console.log('🎨 Richiesta remove BG ricevuta');
+  
+  const { image_url } = req.body;
+  
+  if (!image_url || !image_url.startsWith('/uploads/')) {
+    return res.status(400).json({ error: 'URL immagine non valido' });
+  }
+  
+  try {
+    const imgFilename = path.basename(image_url);
+    const imgSource = path.join(UPLOADS_DIR, imgFilename);
+    
+    if (!fs.existsSync(imgSource)) {
+      return res.status(404).json({ error: 'Immagine non trovata' });
+    }
+    
+    const timestamp = Date.now();
+    const noBgFilename = `nobg_${timestamp}_${imgFilename.replace(/\.[^.]+$/, '.png')}`;
+    const noBgPath = path.join(UPLOADS_DIR, noBgFilename);
+    
+    const success = removeBackground(imgSource, noBgPath);
+    
+    if (success) {
+      res.json({
+        success: true,
+        original_url: image_url,
+        nobg_url: `/uploads/${noBgFilename}`
+      });
+    } else {
+      res.status(500).json({ error: 'Errore rimozione background' });
+    }
+    
+  } catch (error) {
+    console.error('Errore remove BG:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/render', (req, res) => {
   console.log('📥 Rx: Richiesta di render ricevuta!');
   const data = req.body;
-  
+
   try {
     const jobId = Date.now().toString();
     let videoLocalPath = null;
-    
+
     if (data.video_url && data.video_url.startsWith('/uploads/')) {
       const filename = path.basename(data.video_url);
       const sourcePath = path.join(UPLOADS_DIR, filename);
       const destPath = path.join(TEMP_DATA_DIR, `input_${jobId}.mp4`);
-      
+
       if (fs.existsSync(sourcePath)) {
         fs.copyFileSync(sourcePath, destPath);
         videoLocalPath = destPath;
@@ -44,50 +119,93 @@ app.post('/render', (req, res) => {
         console.log('⚠️ Video non trovato:', sourcePath);
       }
     }
-    
+
+    // ✅ AliFind: copia immagini (GIÀ SCONTORNATE dalla UI)
+    let productsLocal = [];
+    if (data.template_id === 'alifind' && Array.isArray(data.products)) {
+      data.products.forEach((p, i) => {
+        if (!p || !p.image_url || !p.name) return;
+        if (!p.image_url.startsWith('/uploads/')) return;
+
+        const imgFilename = path.basename(p.image_url);
+        const imgSource = path.join(UPLOADS_DIR, imgFilename);
+        const ext = path.extname(imgFilename) || '.png';
+        const imgDest = path.join(TEMP_DATA_DIR, `prod_${jobId}_${i+1}${ext}`);
+
+        if (fs.existsSync(imgSource)) {
+          fs.copyFileSync(imgSource, imgDest);
+          console.log('🖼️ Immagine prodotto copiata (già scontornata):', imgDest);
+          
+          productsLocal.push({
+            name: p.name,
+            image_path: imgDest
+          });
+        } else {
+          console.log('⚠️ Immagine non trovata:', imgSource);
+        }
+      });
+    }
+
+    const templateId = data.template_id || 'aliexpress_master';
+    const templateAepPath =
+      data.template_aep_path ||
+      (templateId === 'alifind'
+        ? ALIFIND_AEP_PATH
+        : path.join(TEMPLATES_DIR, 'ALIEXPRESS_MASTER.aep'));
+
     const jobData = {
       job_id: jobId,
+      paths: {
+        base: BASE_FOLDER,
+        templates: TEMPLATES_DIR,
+        temp: TEMP_DATA_DIR,
+        output: OUTPUT_DIR
+      },
+      template_id: templateId,
+      template_aep_path: templateAepPath,
       product_name: data.product_name || 'Prodotto Test',
       hero_lines: data.hero_lines || [],
-      video_path: videoLocalPath,
+      input_video_path: videoLocalPath,
+      products: productsLocal,
       output_path: path.join(OUTPUT_DIR, `output_${jobId}.mp4`),
       timestamp: new Date().toISOString()
     };
-    
+
     const jsonPath = path.join(TEMP_DATA_DIR, 'job_data.json');
     fs.writeFileSync(jsonPath, JSON.stringify(jobData, null, 2));
     console.log('💾 Scritto:', jsonPath);
-    
+
     const statusPath = path.join(TEMP_DATA_DIR, `status_${jobId}.json`);
     fs.writeFileSync(statusPath, JSON.stringify({
       status: 'rendering',
       progress: 10,
       started_at: Date.now()
     }));
-    
-    console.log('🎬 Apertura After Effects 2025...');
-    exec('open -a "Adobe After Effects 2025"', (openError) => {
+
+    console.log(`🎬 Apertura ${AE_APP}...`);
+    exec(`open -a "${AE_APP}"`, (openError) => {
       if (openError) {
         console.error('❌ Errore apertura AE:', openError);
         fs.writeFileSync(statusPath, JSON.stringify({
           status: 'failed',
-          error: 'Impossibile aprire After Effects 2025',
+          error: `Impossibile aprire ${AE_APP}`,
           completed_at: Date.now()
         }));
         return;
       }
-      
-      console.log('✅ After Effects 2025 aperto, attendo inizializzazione...');
+
+      console.log(`✅ ${AE_APP} aperto, attendo inizializzazione...`);
       fs.writeFileSync(statusPath, JSON.stringify({
         status: 'rendering',
         progress: 30,
         started_at: Date.now()
       }));
-      
+
       setTimeout(() => {
         console.log('📜 Esecuzione script JSX...');
-        const osaCmd = `osascript -e 'tell application "Adobe After Effects 2025"' -e 'activate' -e 'DoScriptFile "${SCRIPT_PATH}"' -e 'end tell'`;
-        
+        const scriptToRun = (templateId === 'alifind') ? ALIFIND_SCRIPT_PATH : SCRIPT_PATH;
+        const osaCmd = `osascript -e 'tell application "${AE_APP}"' -e 'activate' -e 'DoScriptFile "${scriptToRun}"' -e 'end tell'`;
+
         exec(osaCmd, (scriptError, stdout, stderr) => {
           if (scriptError) {
             console.error('❌ Errore script:', scriptError.message);
@@ -99,38 +217,31 @@ app.post('/render', (req, res) => {
             }));
             return;
           }
-          
+
           console.log('✅ Script eseguito, attendo render...');
-          
-          // Polling per controllare quando il render finisce
           const outputPath = jobData.output_path;
           let checkCount = 0;
           const maxChecks = 120;
-          
+
           const checkInterval = setInterval(() => {
             checkCount++;
-            
             if (fs.existsSync(outputPath)) {
               console.log('✅ Render completato! Output trovato:', outputPath);
-              
               fs.writeFileSync(statusPath, JSON.stringify({
                 status: 'completed',
                 progress: 100,
                 completed_at: Date.now()
               }));
-              
               clearInterval(checkInterval);
-              
-              // 🔥 CHIUDI AFTER EFFECTS SENZA SALVARE
+
               console.log('🛑 Chiusura After Effects senza salvare...');
-              exec('killall "Adobe After Effects 2025"', (quitErr) => {
+              exec(`killall "${AE_APP}"`, (quitErr) => {
                 if (quitErr) {
                   console.error('⚠️ Errore chiusura AE:', quitErr.message);
                 } else {
                   console.log('✅ After Effects chiuso automaticamente!');
                 }
               });
-              
             } else if (checkCount >= maxChecks) {
               console.error('❌ Timeout: render non completato');
               fs.writeFileSync(statusPath, JSON.stringify({
@@ -151,13 +262,13 @@ app.post('/render', (req, res) => {
         });
       }, 3000);
     });
-    
+
     res.json({
       status: 'success',
       message: 'Render avviato',
       job_id: jobId
     });
-    
+
   } catch (err) {
     console.error('❌ Errore generale:', err);
     res.status(500).json({ status: 'error', message: err.message });
@@ -167,7 +278,7 @@ app.post('/render', (req, res) => {
 app.get(['/status/:jobId', '/api/status/:jobId'], (req, res) => {
   const jobId = req.params.jobId;
   const statusPath = path.join(TEMP_DATA_DIR, `status_${jobId}.json`);
-  
+
   if (fs.existsSync(statusPath)) {
     try {
       const status = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
@@ -185,4 +296,6 @@ app.listen(PORT, () => {
   console.log(`📂 Script target: ${SCRIPT_PATH}`);
   console.log(`📹 Video temp: ${TEMP_DATA_DIR}`);
   console.log(`📤 Output: ${OUTPUT_DIR}`);
+  console.log(`📦 Templates: ${TEMPLATES_DIR}`);
+  console.log(`🎨 Remove BG: ${fs.existsSync(path.join(__dirname, 'remove_bg.py')) ? 'ATTIVO' : 'DISABILITATO'}`);
 });
