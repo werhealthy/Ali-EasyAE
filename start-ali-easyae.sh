@@ -3,39 +3,35 @@
 # Colori per output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Directory del progetto = cartella dove sta questo file
+# Termina processi esistenti
+echo -e "${YELLOW}🧹 Pulizia processi esistenti...${NC}"
+pkill -f "node.*bridge-server"
+pkill -f "next-server"
+pkill -f "ngrok http"
+lsof -ti:3000 | xargs kill -9 2>/dev/null
+lsof -ti:3001 | xargs kill -9 2>/dev/null
+sleep 2
+
+# Directory del progetto
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo -e "${GREEN}🚀 Avvio Ali-EasyAE...${NC}"
 echo ""
 
 # Avvia Bridge Server in background
-echo -e "${BLUE}🌉 Avvio Bridge Server (porta 3001)...${NC}"
+echo -e "${BLUE}🌉 Bridge Server (porta 3001)...${NC}"
 cd "$PROJECT_DIR/bridge-server"
-node index.js > /tmp/ali-bridge.log 2>&1 &
-BRIDGE_PID=$!
-echo "   ✓ Bridge Server avviato (PID: $BRIDGE_PID)"
+node index.js &
+sleep 3
 
-# Attendi 2 secondi
-sleep 2
-
-# Avvia Next.js Dev Server
-echo -e "${BLUE}⚛️  Avvio Next.js Web UI (porta 3000)...${NC}"
+# Avvia Next.js in background  
+echo -e "${BLUE}⚛️  Next.js (porta 3000)...${NC}"
 cd "$PROJECT_DIR/web-ui"
-npm run dev > /tmp/ali-nextjs.log 2>&1 &
-NEXTJS_PID=$!
-echo "   ✓ Next.js avviato (PID: $NEXTJS_PID)"
-
-# Attendi che Next.js si avvii
-echo ""
-echo -e "${BLUE}⏳ Attendo che Next.js sia pronto...${NC}"
+npm run dev &
 sleep 8
-
-# Apri il browser
-echo -e "${GREEN}🌐 Apertura interfaccia web...${NC}"
-open http://localhost:3000
 
 echo ""
 echo -e "${GREEN}✅ Ali-EasyAE è pronto!${NC}"
@@ -45,24 +41,22 @@ echo "📊 Server attivi:"
 echo "   • Bridge Server: http://localhost:3001"
 echo "   • Web UI: http://localhost:3000"
 echo ""
-echo "📝 Log disponibili in:"
-echo "   • Bridge: tail -f /tmp/ali-bridge.log"
-echo "   • Next.js: tail -f /tmp/ali-nextjs.log"
-echo ""
-echo "🛑 Per fermare tutto:"
-echo "   ./stop-ali-easyae.sh"
+echo "🌐 Apertura browser..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Salva i PID per lo script di stop
-echo "$BRIDGE_PID $NEXTJS_PID" > /tmp/ali-easyae-pids.txt
+# Apri automaticamente il browser
+sleep 2
+open http://localhost:3000
 
-# Mantieni la finestra aperta
 echo "💡 Lascia questa finestra aperta finché usi Ali-EasyAE"
 echo ""
 read -p "Premi INVIO per chiudere e fermare i server..."
 
-# Ferma i server quando chiudi
-kill $BRIDGE_PID $NEXTJS_PID 2>/dev/null
-rm /tmp/ali-easyae-pids.txt 2>/dev/null
+# Cleanup quando chiudi
+pkill -f "node.*bridge-server"
+pkill -f "next-server"
+lsof -ti:3000 | xargs kill -9 2>/dev/null
+lsof -ti:3001 | xargs kill -9 2>/dev/null
+
 echo "👋 Server fermati. Arrivederci!"

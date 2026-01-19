@@ -1,4 +1,4 @@
-// render_alifind.jsx - VERSIONE FINALE CON AUTO-ZOOM + STAGIONI
+// render_alifind.jsx - VERSIONE CORRETTA CON DURATA PRECOMP INTERNA
 
 (function () {
 
@@ -109,11 +109,9 @@ try {
   var job = parseJSONFile(jobPath);
   if (!job.job_id) job.job_id = "alifind_" + new Date().getTime();
   statusPath = baseFolder + "/_temp_data/status_" + job.job_id + ".json";
-
   updateStatus(10, "rendering");
   log("AliFind: job_id=" + job.job_id);
 
-  // ✅ LEGGI LA STAGIONE
   var season = job.season || "inverno";
   log("Stagione selezionata: " + season);
 
@@ -128,18 +126,17 @@ try {
   var aepFile = new File(job.template_aep_path);
   if (!aepFile.exists) throw new Error("Template AEP non trovato: " + job.template_aep_path);
   app.open(aepFile);
-
   updateStatus(20, "rendering");
+
   var comp = findCompByName("MAIN_COMP");
 
-  // ✅ Replace input video + AUTO-ZOOM
+  // Replace input video + AUTO-ZOOM
   var inputLayer = findLayerByName(comp, "input.mp4");
   var f = new File(job.input_video_path);
   if (!f.exists) throw new Error("Input video non esiste: " + job.input_video_path);
   var footage = importFootage(f);
   inputLayer.replaceSource(footage, false);
 
-  // ✅ AUTO-ZOOM: Scala il video per riempire il frame
   var compWidth = comp.width;
   var compHeight = comp.height;
   var videoWidth = footage.width;
@@ -157,7 +154,6 @@ try {
   inputLayer.property("Scale").setValue([scaleToFill, scaleToFill]);
   log("Video scalato a " + scaleToFill.toFixed(1) + "% (fill frame)");
 
-  // Time-stretch se necessario
   var D = footage.duration;
   var targetD = D;
   if (D < 0.2) throw new Error("Video troppo corto.");
@@ -174,42 +170,7 @@ try {
   comp.duration = targetD;
   updateStatus(30, "rendering");
 
-  
-  // ✅ OUTRO ultimi 6s - GESTIONE STAGIONE
-  updateStatus(32, "rendering");
-
-  var season = job.season || "inverno";
-  log("Stagione selezionata: " + season);
-
-  // 🔍 DEBUG: Lista tutti i layer della comp
-  log("=== DEBUG: Lista layer in " + comp.name + " ===");
-  for (var debugI = 1; debugI <= comp.numLayers; debugI++) {
-    try {
-      var debugLayer = comp.layer(debugI);
-      log("Layer " + debugI + ": '" + debugLayer.name + "' (enabled=" + debugLayer.enabled + ")");
-    } catch(e) {}
-  }
-  log("=== FINE DEBUG ===");
-
-  // Disabilita ENTRAMBI gli outro prima
-  log("Disabilito tutti gli outro...");
-  try {
-    var outroInv = comp.layer("OUTRO_INVERNO");
-    outroInv.enabled = false;
-    log("OUTRO_INVERNO disabilitato");
-  } catch(e) {
-    log("OUTRO_INVERNO non trovato: " + e.toString());
-  }
-
-  try {
-    var outroAut = comp.layer("OUTRO_AUTUNNO");
-    outroAut.enabled = false;
-    log("OUTRO_AUTUNNO disabilitato");
-  } catch(e) {
-    log("OUTRO_AUTUNNO non trovato: " + e.toString());
-  }
-
-  // Ora abilita solo quello corretto
+  // OUTRO - ANCORATO ALLA FINE
   var outro = null;
   var outroLayerName = "OUTRO_" + season.toUpperCase();
   try {
@@ -217,8 +178,6 @@ try {
     outro.enabled = true;
     log("✅ Layer attivato: " + outroLayerName);
   } catch(e) {
-    log("❌ Layer " + outroLayerName + " non trovato: " + e.toString());
-    // Fallback: cerca OUTRO_CLIP generico
     try {
       outro = comp.layer("OUTRO_CLIP");
       outro.enabled = true;
@@ -228,66 +187,30 @@ try {
     }
   }
 
-  // ✅ POSIZIONA L'OUTRO SE ESISTE
+  var outroStart = 0;
   if (outro) {
-    var outroDur = 6.0;
-    var outroStart = targetD - outroDur;
+    // ✅ L'outro deve FINIRE insieme alla comp, non iniziare a un punto fisso
+    var outroDuration = outro.source ? outro.source.duration : 6.0;
+    outroStart = targetD - outroDuration;
     
-    if (outroStart < 0.5) {
-      log("⚠️ Durata comp troppo corta per outro 6s, skip");
-    } else {
-      outro.startTime = outroStart;
-      outro.inPoint = outroStart;
-      outro.outPoint = targetD;
-      log("OUTRO posizionato da " + outroStart.toFixed(2) + "s a " + targetD.toFixed(2) + "s");
+    if (outroStart < 0) {
+      outroStart = 0;
+      log("⚠️ Outro più lungo della comp, parte da 0");
     }
+    
+    outro.startTime = outroStart;
+    outro.inPoint = outroStart;
+    outro.outPoint = targetD;
+    
+    log("OUTRO posizionato: startTime=" + outroStart.toFixed(2) + "s, outPoint=" + targetD.toFixed(2) + "s (durata outro=" + outroDuration.toFixed(2) + "s)");
   }
 
-// Ora abilita solo quello corretto
-var outro = null;
-var outroLayerName = "OUTRO_" + season.toUpperCase();
 
-try {
-  outro = comp.layer(outroLayerName);
-  log("✅ TROVATO layer: '" + outro.name + "'");
-  outro.enabled = true;
-  log("✅ Layer attivato: '" + outro.name + "'");
-} catch(e) {
-  log("❌ Layer " + outroLayerName + " non trovato: " + e.toString());
-  // Fallback: cerca OUTRO_CLIP
-  try {
-    outro = comp.layer("OUTRO_CLIP");
-    outro.enabled = true;
-    log("✅ Trovato OUTRO_CLIP generico");
-  } catch(e2) {
-    log("⚠️ Nessun outro trovato, skip");
-  }
-}
-
-// ✅ DEBUG: Verifica stato DOPO attivazione
-log("=== DEBUG DOPO ATTIVAZIONE ===");
-if (outro) {
-  log("Outro layer: '" + outro.name + "' (enabled=" + outro.enabled + ")");
-} else {
-  log("⚠️ ATTENZIONE: outro è NULL!");
-}
-for (var debugI = 1; debugI <= comp.numLayers; debugI++) {
-  try {
-    var debugLayer = comp.layer(debugI);
-    if (debugLayer.name.indexOf("OUTRO") !== -1) {
-      log("→ " + debugLayer.name + " (enabled=" + debugLayer.enabled + ")");
-    }
-  } catch(e) {}
-}
-log("=== FINE DEBUG ===");
-
-
-  // Timing prodotti
-  var available = outroStart > 0 ? outroStart : targetD;
+  // ✅ OGNI PRODOTTO DURA ESATTAMENTE 3 SECONDI
   var N = job.products.length;
-  var introExtra = Math.min(1.0, available * 0.25);
-  var slot = (available - introExtra) / N;
-  if (slot < 0.2) slot = 0.2;
+  var PRODUCT_DURATION = 3.0;
+  
+  log("Timing prodotti: N=" + N + ", durata per prodotto=" + PRODUCT_DURATION + "s");
 
   var baseBlock = findLayerByName(comp, "PRODUCT_BLOCK");
   if (!(baseBlock.source && baseBlock.source instanceof CompItem)) {
@@ -338,31 +261,40 @@ log("=== FINE DEBUG ===");
     log("Nome prodotto impostato: " + p.name);
   }
 
-  var t = 0;
+  // ✅ LOOP: Modifica durata interna precomp invece di tagliare con inPoint/outPoint
   for (var i = 0; i < N; i++) {
     var p = job.products[i];
-    var dur = slot;
-    if (i === 0) dur = slot + introExtra;
-    var start = t;
-    var end = start + dur;
-    t = end;
+    var start = i * PRODUCT_DURATION;
+
+    log(">>> Prodotto #" + (i+1) + ": " + p.name + " inizia a " + start.toFixed(2) + "s");
 
     var clone = baseBlock.duplicate();
     clone.enabled = true;
     clone.name = "PRODUCT_BLOCK_" + (i + 1);
+
     var newComp = baseBlock.source.duplicate();
     newComp.name = "PRODUCT_BLOCK_COMP_" + (i + 1);
+    
+    // ✅ IMPOSTA DURATA INTERNA DELLA PRECOMP A 3 SECONDI
+    newComp.duration = PRODUCT_DURATION;
+    log("  → Durata precomp interna: " + PRODUCT_DURATION + "s");
+    
     clone.replaceSource(newComp, false);
+
     clone.property("Position").setValue([basePos[0] + i * dx, basePos[1] + i * dy]);
-    clone.startTime = 0;
-    clone.inPoint = start;
-    clone.outPoint = end;
+    
+    // ✅ IL LAYER PARTE DA "start" MA SENZA inPoint/outPoint
+    // Così la precomp si riproduce dall'inizio (0s) e i marker TR In funzionano
+    clone.startTime = start;
+    
+    log("  → Layer startTime=" + start.toFixed(2) + "s (precomp parte da 0 con TR In intatto)");
+
     applyProductToBlock(newComp, p);
   }
 
   updateStatus(70, "rendering");
 
-  // --- HERO TEXT ---
+  // HERO TEXT
   if (job.hero_lines && job.hero_lines.length > 0) {
     log("Inizio generazione " + job.hero_lines.length + " hero lines");
     try {
@@ -404,7 +336,6 @@ log("=== FINE DEBUG ===");
         var textDoc = textProp.value;
         textDoc.text = heroText;
         textProp.setValue(textDoc);
-        log("Testo impostato: " + heroText);
 
         newHeroLayer.position.setValue([heroBasePos[0], heroBasePos[1] + (h * SPAZIATURA_Y)]);
         newHeroLayer.startTime = heroBaseTime + (h * DELAY_TEMPO);
@@ -420,7 +351,6 @@ log("=== FINE DEBUG ===");
           }
         }
       }
-
       log("Tutte le hero lines create: " + job.hero_lines.length);
     } catch(heroError) {
       log("WARNING Hero Text: " + heroError.toString());
@@ -429,7 +359,7 @@ log("=== FINE DEBUG ===");
     log("Nessuna hero_line nel job, skip");
   }
 
-  // --- RENDER QUEUE ---
+  // RENDER QUEUE
   while (app.project.renderQueue.numItems > 0) {
     app.project.renderQueue.item(1).remove();
   }
@@ -442,7 +372,6 @@ log("=== FINE DEBUG ===");
 
   updateStatus(80, "rendering");
   app.project.renderQueue.render();
-
   updateStatus(100, "completed");
   log("Render completato!");
 
@@ -458,20 +387,13 @@ log("=== FINE DEBUG ===");
   finalStatus.write(toJSON(finalObj));
   finalStatus.close();
 
-  app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
-  log("Progetto chiuso senza salvare");
+  log("✅ Progetto lasciato aperto per debug - NON chiude AE");
 
-  // ✅ DELAY PRIMA DI QUIT
-  $.sleep(2000);  // Attendi 2 secondi
-  log("Chiusura After Effects in 2s...");
-  app.quit();
-
-  } catch (e) {
-    var errorMsg = e.toString() + " (Linea: " + e.line + ")";
-    alert("CRASH: " + errorMsg);
-    log("CRASH: " + errorMsg);
-    updateStatus(0, "failed", errorMsg);
-  }
-
+} catch (e) {
+  var errorMsg = e.toString() + " (Linea: " + e.line + ")";
+  alert("CRASH: " + errorMsg);
+  log("CRASH: " + errorMsg);
+  updateStatus(0, "failed", errorMsg);
+}
 
 })();
