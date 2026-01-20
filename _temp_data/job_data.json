@@ -1,34 +1,23 @@
 {
-  "job_id": "1768841793397",
+  "job_id": "1768927833659",
   "paths": {
     "base": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE",
     "templates": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_templates",
     "temp": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data",
     "output": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_output"
   },
-  "template_id": "alifind",
-  "template_aep_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_templates/ALIFIND/AliExpress_alifinds.aep",
-  "product_name": "Prodotto Test",
+  "template_id": "alireal",
+  "template_aep_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_templates/ALIREAL/ALIEXPRESS_alireal.aep",
+  "product_name": "lnnnklm",
   "hero_lines": [
-    "asdasda",
-    "fasdadas"
-  ],
-  "input_video_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/input_1768841793397.mp4",
-  "products": [
     {
-      "name": "Zaino rosa",
-      "image_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/prod_1768841793397_1.png"
-    },
-    {
-      "name": "Zaino nero",
-      "image_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/prod_1768841793397_2.png"
-    },
-    {
-      "name": "Zaino nero 2",
-      "image_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/prod_1768841793397_3.png"
+      "text": "ghvchgkc",
+      "is_bold": true
     }
   ],
-  "season": "autunno",
-  "output_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_output/output_1768841793397.mp4",
-  "timestamp": "2026-01-19T16:56:33.419Z"
+  "input_video_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_temp_data/input_1768927833659.mp4",
+  "products": [],
+  "season": "inverno",
+  "output_path": "/Users/francesco.cerisano/Documents/GitHub/Ali-EasyAE/_output/output_1768927833659.mp4",
+  "timestamp": "2026-01-20T16:50:33.666Z"
 }
