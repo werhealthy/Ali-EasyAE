@@ -18,7 +18,7 @@ const SCRIPT_PATH = path.join(BASE_FOLDER, '_scripts/render_script.jsx');
 const ALIFIND_SCRIPT_PATH = path.join(BASE_FOLDER, '_scripts/render_alifind.jsx');
 const ALIREAL_SCRIPT_PATH = path.join(BASE_FOLDER, '_scripts/render_alireal.jsx');
 const TEMP_DATA_DIR = path.join(BASE_FOLDER, '_temp_data');
-const OUTPUT_DIR = path.join(BASE_FOLDER, '_output');
+const OUTPUT_DIR = path.join(BASE_FOLDER, '_temp_data', 'renders');
 const TEMPLATES_DIR = path.join(BASE_FOLDER, '_templates');
 const ALIFIND_TEMPLATES_DIR = path.join(BASE_FOLDER, '_templates', 'ALIFIND');
 const ALIFIND_AEP_PATH = path.join(ALIFIND_TEMPLATES_DIR, 'AliExpress_alifinds.aep');
@@ -41,7 +41,7 @@ function removeBackground(inputPath, outputPath) {
     console.log(`🎨 Rimozione background: ${path.basename(inputPath)}...`);
     execSync(`python3 "${pythonScript}" "${inputPath}" "${outputPath}"`, {
       stdio: 'inherit',
-      timeout: 30000
+      timeout: 120000
     });
 
     if (fs.existsSync(outputPath)) {
@@ -116,7 +116,7 @@ app.post('/render', (req, res) => {
     if (data.video_url && data.video_url.startsWith('/uploads/')) {
       const filename = path.basename(data.video_url);
       const sourcePath = path.join(UPLOADS_DIR, filename);
-      const destPath = path.join(TEMP_DATA_DIR, `input_${jobId}.mp4`);
+      const destPath = path.join(TEMP_DATA_DIR, 'uploads', `input_${jobId}.mp4`);
 
       if (fs.existsSync(sourcePath)) {
         fs.copyFileSync(sourcePath, destPath);
@@ -137,7 +137,7 @@ app.post('/render', (req, res) => {
         const imgFilename = path.basename(p.image_url);
         const imgSource = path.join(UPLOADS_DIR, imgFilename);
         const ext = path.extname(imgFilename) || '.png';
-        const imgDest = path.join(TEMP_DATA_DIR, `prod_${jobId}_${i + 1}${ext}`);
+        const imgDest = path.join(TEMP_DATA_DIR, 'uploads', `prod_${jobId}_${i + 1}${ext}`);
 
         if (fs.existsSync(imgSource)) {
           fs.copyFileSync(imgSource, imgDest);
@@ -153,11 +153,26 @@ app.post('/render', (req, res) => {
     }
 
     const templateId = data.template_id || 'aliexpress_master';
-    const templateAepPath =
-      data.template_aep_path ||
-      (templateId === 'alifind'
-        ? ALIFIND_AEP_PATH
-        : path.join(TEMPLATES_DIR, 'ALIEXPRESS_MASTER.aep'));
+
+    // ✅ Determina il path corretto del template AEP
+    let templateAepPath;
+    if (data.template_aep_path) {
+      // Path esplicito dal frontend
+      templateAepPath = data.template_aep_path;
+    } else if (templateId === 'alifind') {
+      // AliFind: usa il path definito
+      templateAepPath = ALIFIND_AEP_PATH;
+    } else if (templateId === 'alireal') {
+      // ✅ AliReal: usa il path nella cartella ALIREAL
+      templateAepPath = path.join(TEMPLATES_DIR, 'ALIREAL', 'AliExpressREAL.aep');
+    } else {
+      // Default: ALIEXPRESS_MASTER
+      templateAepPath = path.join(TEMPLATES_DIR, 'ALIEXPRESS_MASTER.aep');
+    }
+
+    console.log(`🎯 Template ID: ${templateId}`);
+    console.log(`📁 AEP Path: ${templateAepPath}`);
+
 
     // ✅ CREA JOB DATA CON SEASON
     const jobData = {
@@ -179,18 +194,21 @@ app.post('/render', (req, res) => {
       timestamp: new Date().toISOString()
     };
 
-    const jsonPath = path.join(TEMP_DATA_DIR, 'job_data.json');
+    // ✅ Crea file unico per ogni job
+    const jsonPath = path.join(TEMP_DATA_DIR, `job_data_${jobId}.json`);
     fs.writeFileSync(jsonPath, JSON.stringify(jobData, null, 2));
+    console.log('📝 Job data scritto in:', jsonPath);
+
     console.log('💾 Scritto job_data.json con season:', jobData.season);
 
-    const statusPath = path.join(TEMP_DATA_DIR, `status_${jobId}.json`);
+    const statusPath = path.join(TEMP_DATA_DIR, 'processing', `status_${jobId}.json`);
     fs.writeFileSync(statusPath, JSON.stringify({
       status: 'rendering',
       progress: 10,
       started_at: Date.now()
     }));
 
-    console.log(`🎬 Apertura ${AE_APP}...`);
+    console.log(`🎬 Apertura ${AE_APP}...`); 
     exec(`open -a "${AE_APP}"`, (openError) => {
       if (openError) {
         console.error('❌ Errore apertura AE:', openError);
@@ -247,21 +265,33 @@ app.post('/render', (req, res) => {
 
             if (fs.existsSync(outputPath)) {
               console.log('✅ Render completato! Output trovato:', outputPath);
+              
+              const videoFilename = path.basename(outputPath);
+              
               fs.writeFileSync(statusPath, JSON.stringify({
                 status: 'completed',
                 progress: 100,
+                output_path: `/api/output/${videoFilename}`,
                 completed_at: Date.now()
               }));
+              
               clearInterval(checkInterval);
 
+
               console.log('🛑 Chiusura After Effects senza salvare...');
-              exec(`killall "${AE_APP}"`, (quitErr) => {
-                if (quitErr) {
-                  console.error('⚠️ Errore chiusura AE:', quitErr.message);
-                } else {
-                  console.log('✅ After Effects chiuso automaticamente!');
-                }
-              });
+
+              // ✅ Chiusura After Effects con nome processo corretto
+              setTimeout(() => {
+                exec(`pkill -x "After Effects"`, (quitErr) => {
+                  if (quitErr) {
+                    console.log('⚠️ After Effects già chiuso o errore pkill:', quitErr.message);
+                  } else {
+                    console.log('✅ After Effects chiuso automaticamente!');
+                  }
+                });
+              }, 2000); // Aspetta 2 secondi dopo il completamento
+
+
             } else if (checkCount >= maxChecks) {
               console.error('❌ Timeout: render non completato');
               fs.writeFileSync(statusPath, JSON.stringify({
@@ -295,10 +325,22 @@ app.post('/render', (req, res) => {
   }
 });
 
+// ✅ ENDPOINT: Serve video output
+app.get('/api/output/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const videoPath = path.join(OUTPUT_DIR, filename);
+  
+  if (fs.existsSync(videoPath)) {
+    res.sendFile(videoPath);
+  } else {
+    res.status(404).json({ error: 'Video non trovato' });
+  }
+});
+
 // ✅ ENDPOINT: Status
 app.get(['/status/:jobId', '/api/status/:jobId'], (req, res) => {
   const jobId = req.params.jobId;
-  const statusPath = path.join(TEMP_DATA_DIR, `status_${jobId}.json`);
+  const statusPath = path.join(TEMP_DATA_DIR, 'processing', `status_${jobId}.json`);
 
   if (fs.existsSync(statusPath)) {
     try {

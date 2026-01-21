@@ -1,0 +1,9 @@
+_temp_data/
+web-ui/.next/
+web-ui/node_modules/
+bridge-server/node_modules/
+.env
+.env.local
+*.backup
+*.save
+.DS_Store

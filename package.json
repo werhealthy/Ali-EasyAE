@@ -1,9 +1,8 @@
 {
-  "dependencies": {
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.562.0",
-    "tailwind-merge": "^3.4.0",
-    "tailwindcss-animate": "^1.0.7"
+  "name": "ali-easyae",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "cd bridge-server && npm start",
+    "dev": "cd web-ui && npm run dev"
   }
 }

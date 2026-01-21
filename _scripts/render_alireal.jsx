@@ -5,11 +5,9 @@
 var statusPath = "";
 var baseFolder = "";
 
-// 🔥 Base folder auto: risaliamo da .../_scripts/render_alireal.jsx a .../Ali-EasyAE
 function computeBaseFolder() {
   try {
     var scriptFile = new File($.fileName);
-    // parent = _scripts, parent.parent = root progetto
     return scriptFile.parent.parent.fsName;
   } catch(e) {
     return "";
@@ -23,12 +21,9 @@ function log(msg) {
     f.open("a");
     f.writeln("[" + new Date().toTimeString().substring(0,8) + "] " + msg);
     f.close();
-  } catch(e) {
-    // se log fallisce, non bloccare lo script
-  }
+  } catch(e) {}
 }
 
-// Funzione per convertire oggetto in JSON (compatibile ES3)
 function toJSON(obj) {
   var parts = [];
   for (var key in obj) {
@@ -63,21 +58,37 @@ function updateStatus(progress, status, error) {
     statusFile.open("w");
     statusFile.write(toJSON(statusObj));
     statusFile.close();
-    log("Status aggiornato: " + progress + "% - " + status);
+    log("Status: " + progress + "% - " + status);
   } catch(e) {
-    log("Errore update status: " + e.toString());
+    log("Errore status: " + e.toString());
   }
 }
 
 try {
-  // --- 1. CONFIGURAZIONE ---
   baseFolder = computeBaseFolder();
   if (!baseFolder) {
     alert("ERRORE: impossibile determinare baseFolder");
     return;
   }
 
-  var jsonPath = baseFolder + "/_temp_data/job_data.json";
+  var tempFolder = new Folder(baseFolder + '/_temp_data');
+  var files = tempFolder.getFiles('job_data_*.json');
+  var jsonPath;
+
+  if (files && files.length > 0) {
+    var newest = files[0];
+    for (var i = 1; i < files.length; i++) {
+      if (files[i].modified > newest.modified) {
+        newest = files[i];
+      }
+    }
+    jsonPath = newest.fsName;
+    log('Usando job_data: ' + jsonPath);
+  } else {
+    jsonPath = baseFolder + '/_temp_data/job_data.json';
+    log('Fallback a job_data.json');
+  }
+
   var FONT_BOLD = "AliExpresssans-Blod";
   var FONT_REGULAR = "AliExpresssans-Regular";
   var SPAZIATURA_Y = 90;
@@ -85,7 +96,6 @@ try {
   var NOME_LIV_HERO = "TEXT_TEMPLATE";
   var NOME_LIV_PROD = "TEXT_FOOTER";
 
-  // --- 2. LETTURA DATI ---
   var jsonFile = new File(jsonPath);
   if (!jsonFile.exists) {
     alert("ERRORE: JSON non trovato in " + jsonPath);
@@ -104,19 +114,16 @@ try {
     return;
   }
 
-  // Status path basato su job_id
   statusPath = baseFolder + "/_temp_data/status_" + data.job_id + ".json";
-  log("AliReal: job_id=" + data.job_id);
+  log("AliReal job_id: " + data.job_id);
   updateStatus(15, "rendering");
 
   var templatePath = data.template_aep_path;
-  // Se è relativo, rendilo assoluto
   if (templatePath && templatePath.indexOf('/') !== 0) {
     templatePath = baseFolder + '/' + templatePath;
   }
   log("Template path: " + templatePath);
 
-  // --- 3. APERTURA PROGETTO ---
   var tplFile = new File(templatePath);
   if (!tplFile.exists) {
     alert("ERRORE: Template AEP non trovato: " + templatePath);
@@ -132,7 +139,7 @@ try {
   var comp = app.project.activeItem || app.project.item(1);
   updateStatus(25, "rendering");
 
-  // --- 4. SOSTITUZIONE VIDEO ---
+  // SOSTITUZIONE VIDEO
   var videoPath = data.input_video_path || data.video_path;
   if (videoPath) {
     log("Inizio sostituzione video: " + videoPath);
@@ -153,13 +160,38 @@ try {
 
     if (videoLayer) {
       try {
-        // ✅ FIX: usa videoPath invece di data.video_path
         var newVideoFile = new File(videoPath);
         if (newVideoFile.exists) {
           log("File video trovato: " + videoPath);
           var importedVideo = app.project.importFile(new ImportOptions(newVideoFile));
           videoLayer.replaceSource(importedVideo, false);
-          log("Video sostituito con successo!");
+          
+          // AUTO-ZOOM
+          var compWidth = comp.width;
+          var compHeight = comp.height;
+          var videoWidth = importedVideo.width;
+          var videoHeight = importedVideo.height;
+          var compRatio = compWidth / compHeight;
+          var videoRatio = videoWidth / videoHeight;
+          var scaleToFill = 100;
+          
+          if (videoRatio < compRatio) {
+            scaleToFill = (compWidth / videoWidth) * 100;
+          } else {
+            scaleToFill = (compHeight / videoHeight) * 100;
+          }
+          
+          videoLayer.property("Scale").setValue([scaleToFill, scaleToFill]);
+          log("Video scalato a " + scaleToFill.toFixed(1) + "%");
+          
+          // Aggiorna durata comp
+          var D = importedVideo.duration;
+          comp.duration = D;
+          videoLayer.startTime = 0;
+          videoLayer.inPoint = 0;
+          videoLayer.outPoint = D;
+          log("Durata comp: " + D.toFixed(2) + "s");
+          
           updateStatus(40, "rendering");
         } else {
           log("ERRORE: File video non trovato: " + videoPath);
@@ -168,50 +200,61 @@ try {
         log("ERRORE sostituzione video: " + errVideo.toString());
       }
     } else {
-      log("ATTENZIONE: Nessun layer video trovato nel template");
+      log("ATTENZIONE: Nessun layer video trovato");
     }
   } else {
-    log("Nessun video specificato nel JSON");
+    log("Nessun video nel JSON");
   }
-if (videoLayer) {
-  try {
-    var newVideoFile = new File(videoPath);
-    if (newVideoFile.exists) {
-      log("File video trovato: " + videoPath);
-      var importedVideo = app.project.importFile(new ImportOptions(newVideoFile));
-      videoLayer.replaceSource(importedVideo, false);
-      
-      // ✅ AUTO-ZOOM: Scala il video per riempire il frame (no bande nere)
-      var compWidth = comp.width;
-      var compHeight = comp.height;
-      var videoWidth = importedVideo.width;
-      var videoHeight = importedVideo.height;
-      
-      var compRatio = compWidth / compHeight;
-      var videoRatio = videoWidth / videoHeight;
-      
-      var scaleToFill = 100;
-      if (videoRatio < compRatio) {
-        // Video più stretto della comp -> scala per larghezza
-        scaleToFill = (compWidth / videoWidth) * 100;
-      } else {
-        // Video più largo della comp -> scala per altezza
-        scaleToFill = (compHeight / videoHeight) * 100;
-      }
-      
-      videoLayer.property("Scale").setValue([scaleToFill, scaleToFill]);
-      log("Video scalato a " + scaleToFill.toFixed(1) + "% per fill frame");
-      
-      updateStatus(40, "rendering");
-    } else {
-      log("ERRORE: File video non trovato: " + videoPath);
-    }
-  } catch(errVideo) {
-    log("ERRORE sostituzione video: " + errVideo.toString());
-  }
-}
 
-  // --- 5. PRODOTTO ---
+  // OUTRO STAGIONALE
+  var season = data.season || 'inverno';
+  log("Stagione: " + season);
+  log("Durata comp corrente: " + comp.duration.toFixed(2) + "s");
+
+  var allSeasons = ['INVERNO', 'AUTUNNO', 'PRIMAVERA', 'ESTATE'];
+  for (var s = 0; s < allSeasons.length; s++) {
+    try {
+      var tempOutro = comp.layer('OUTRO_' + allSeasons[s]);
+      if (tempOutro) {
+        tempOutro.enabled = false;
+        log("Disabilitato: OUTRO_" + allSeasons[s]);
+      }
+    } catch(e) {
+      log("OUTRO_" + allSeasons[s] + " non trovato (ok)");
+    }
+  }
+
+  var outro = null;
+  var outroLayerName = 'OUTRO_' + season.toUpperCase();
+  log("Cerco layer: " + outroLayerName);
+
+  try {
+    outro = comp.layer(outroLayerName);
+    if (outro) {
+      outro.enabled = true;
+      log("Attivato: " + outroLayerName);
+    } else {
+      log("Layer null: " + outroLayerName);
+    }
+  } catch(e) {
+    log("ERRORE: " + outroLayerName + " - " + e.toString());
+  }
+
+  if (outro) {
+    var compDuration = comp.duration;
+    var outroDuration = outro.source ? outro.source.duration : 6.0;
+    var outroStart = compDuration - outroDuration;
+    if (outroStart < 0) outroStart = 0;
+    
+    outro.startTime = outroStart;
+    outro.inPoint = outroStart;
+    outro.outPoint = compDuration;
+    log("OUTRO posizionato: start=" + outroStart.toFixed(2) + "s");
+  } else {
+    log("OUTRO non posizionato (layer null)");
+  }
+
+  // PRODOTTO
   updateStatus(45, "rendering");
   var layerProdotto = comp.layer(NOME_LIV_PROD);
   if (layerProdotto) {
@@ -219,25 +262,25 @@ if (videoLayer) {
     var doc = prop.value;
     doc.text = data.product_name ? String(data.product_name) : "NOME PRODOTTO";
     prop.setValue(doc);
-    log("Prodotto scritto: " + doc.text);
+    log("Prodotto: " + doc.text);
   }
 
-  // --- 6. HERO TEXT ---
+  // HERO TEXT
   updateStatus(50, "rendering");
   var heroLayer = comp.layer(NOME_LIV_HERO);
   if (!heroLayer) {
-    alert("ERRORE: Layer TEXT_TEMPLATE non trovato!");
-    updateStatus(0, "failed", "Layer TEXT_TEMPLATE non trovato");
+    alert("ERRORE: TEXT_TEMPLATE non trovato!");
+    updateStatus(0, "failed", "TEXT_TEMPLATE non trovato");
     return;
   }
 
   if (!data.hero_lines || data.hero_lines.length === 0) {
-    alert("ATTENZIONE: Nessuna hero_line nel JSON!");
+    alert("ERRORE: Nessuna hero_line!");
     updateStatus(0, "failed", "Nessuna hero_line");
     return;
   }
 
-  log("Inizio generazione " + data.hero_lines.length + " hero lines");
+  log("Generazione " + data.hero_lines.length + " hero lines");
   var startPos = heroLayer.position.value;
   var startTime = heroLayer.startTime;
   heroLayer.enabled = false;
@@ -254,7 +297,7 @@ if (videoLayer) {
       if (lineData.is_bold === false) useBold = false;
     }
 
-    log("Hero line " + (i+1) + ": " + textContent);
+    log("Hero " + (i+1) + ": " + textContent);
 
     var newLayer = heroLayer.duplicate();
     newLayer.name = "GEN_RIGA_" + (i + 1);
@@ -267,7 +310,7 @@ if (videoLayer) {
       textDoc.font = useBold ? FONT_BOLD : FONT_REGULAR;
       textProp.setValue(textDoc);
     } catch(errFont) {
-      log("Font fallito, uso fallback");
+      log("Font fallito");
       var fallbackDoc = textProp.value;
       fallbackDoc.text = textContent;
       textProp.setValue(fallbackDoc);
@@ -291,17 +334,17 @@ if (videoLayer) {
     updateStatus(progressRighe, "rendering");
   }
 
-  log("Tutte le hero lines create: " + data.hero_lines.length);
+  log("Hero lines completate");
   updateStatus(70, "rendering");
 
-  // --- 7. RENDER ---
+  // RENDER
   while (app.project.renderQueue.numItems > 0) {
     app.project.renderQueue.item(1).remove();
   }
 
   var rqItem = app.project.renderQueue.items.add(comp);
   var outputModule = rqItem.outputModule(1);
-  var outputPath = data.output_path || (baseFolder + "/_output/output_" + data.job_id + ".mp4");
+  var outputPath = data.output_path || (baseFolder + "/_temp_data/renders/output_" + data.job_id + ".mp4");
   outputModule.file = new File(outputPath);
 
   log("Render avviato: " + outputPath);
@@ -311,7 +354,6 @@ if (videoLayer) {
 
   log("Render completato!");
 
-  // ✅ SCRIVI SUBITO output_path nel status
   var finalVideoName = "output_" + data.job_id + ".mp4";
   var finalStatus = new File(statusPath);
   finalStatus.open("w");
@@ -323,23 +365,20 @@ if (videoLayer) {
   };
   finalStatus.write(toJSON(finalObj));
   finalStatus.close();
-  log("Status finale scritto con output_path: /api/output/" + finalVideoName);
+  log("Status finale scritto");
 
-  // Chiudi senza salvare
   app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
-  log("Progetto chiuso senza salvare");
+  log("Progetto chiuso");
 
-  // ✅ DELAY PRIMA DI QUIT
-  $.sleep(2000);  // Attendi 2 secondi
-  log("Chiusura After Effects in 2s...");
+  $.sleep(2000);
+  log("Quit in 2s");
   app.quit();
 
-  } catch (e) {
-    var errorMsg = e.toString() + " (Linea: " + e.line + ")";
-    alert("CRASH: " + errorMsg);
-    log("CRASH: " + errorMsg);
-    updateStatus(0, "failed", errorMsg);
-  }
-
+} catch (e) {
+  var errorMsg = e.toString() + " (Linea: " + e.line + ")";
+  alert("CRASH: " + errorMsg);
+  log("CRASH: " + errorMsg);
+  updateStatus(0, "failed", errorMsg);
+}
 
 })();
