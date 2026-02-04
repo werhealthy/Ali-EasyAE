@@ -1,4 +1,4 @@
-// render_alireal.jsx - VERSIONE FINALE
+// render_alireal.jsx - FIX BLOCCO
 
 (function() {
 
@@ -19,7 +19,7 @@ function log(msg) {
     var logPath = baseFolder + "/_temp_data/production_log.txt";
     var f = new File(logPath);
     f.open("a");
-    f.writeln("[" + new Date().toTimeString().substring(0,8) + "] " + msg);
+    f.writeln("[" + new Date().toTimeString().substring(0,8) + "] [AliReal] " + msg);
     f.close();
   } catch(e) {}
 }
@@ -58,19 +58,18 @@ function updateStatus(progress, status, error) {
     statusFile.open("w");
     statusFile.write(toJSON(statusObj));
     statusFile.close();
-    log("Status: " + progress + "% - " + status);
-  } catch(e) {
-    log("Errore status: " + e.toString());
-  }
+  } catch(e) {}
 }
 
 try {
+  log("=== INIZIO SCRIPT ALIREAL ===");
+  
   baseFolder = computeBaseFolder();
   if (!baseFolder) {
-    alert("ERRORE: impossibile determinare baseFolder");
-    return;
+    throw new Error("Impossibile determinare baseFolder");
   }
 
+  // RICERCA FILE PIÙ RECENTE
   var tempFolder = new Folder(baseFolder + '/_temp_data');
   var files = tempFolder.getFiles('job_data_*.json');
   var jsonPath;
@@ -83,261 +82,319 @@ try {
       }
     }
     jsonPath = newest.fsName;
-    log('Usando job_data: ' + jsonPath);
   } else {
     jsonPath = baseFolder + '/_temp_data/job_data.json';
-    log('Fallback a job_data.json');
   }
 
+  // Costanti
   var FONT_BOLD = "AliExpresssans-Blod";
   var FONT_REGULAR = "AliExpresssans-Regular";
   var SPAZIATURA_Y = 90;
   var DELAY_TEMPO = 0.2;
-  var NOME_LIV_HERO = "TEXT_TEMPLATE";
-  var NOME_LIV_PROD = "TEXT_FOOTER";
 
+  // Carica JSON
   var jsonFile = new File(jsonPath);
   if (!jsonFile.exists) {
-    alert("ERRORE: JSON non trovato in " + jsonPath);
-    return;
+    throw new Error("JSON non trovato: " + jsonPath);
   }
 
   jsonFile.open("r");
   var rawJson = jsonFile.read();
   jsonFile.close();
 
-  var data;
-  try {
-    data = eval("(" + rawJson + ")");
-  } catch(e) {
-    alert("ERRORE NEL JSON: " + e.toString());
-    return;
+  var data = eval("(" + rawJson + ")");
+  if (!data.job_id) {
+    data.job_id = 'alireal_' + new Date().getTime();
   }
 
   statusPath = baseFolder + "/_temp_data/status_" + data.job_id + ".json";
-  log("AliReal job_id: " + data.job_id);
+  log("Job ID: " + data.job_id);
   updateStatus(15, "rendering");
 
+  // Template
   var templatePath = data.template_aep_path;
   if (templatePath && templatePath.indexOf('/') !== 0) {
     templatePath = baseFolder + '/' + templatePath;
   }
-  log("Template path: " + templatePath);
 
   var tplFile = new File(templatePath);
   if (!tplFile.exists) {
-    alert("ERRORE: Template AEP non trovato: " + templatePath);
-    updateStatus(0, "failed", "Template AEP non trovato");
-    return;
+    throw new Error("Template non trovato: " + templatePath);
   }
 
-  if (app.project && app.project.file && app.project.file.toString() !== templatePath.toString()) {
-    app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
-  }
-
-  app.open(tplFile);
-  var comp = app.project.activeItem || app.project.item(1);
-  updateStatus(25, "rendering");
-
-  // SOSTITUZIONE VIDEO
-  var videoPath = data.input_video_path || data.video_path;
-  if (videoPath) {
-    log("Inizio sostituzione video: " + videoPath);
-    updateStatus(30, "rendering");
-
-    var videoLayerNames = ["INPUT_VIDEO", "input.mp4", "input", "VIDEO_BG", "background"];
-    var videoLayer = null;
-
-    for (var v = 0; v < videoLayerNames.length; v++) {
-      try {
-        videoLayer = comp.layer(videoLayerNames[v]);
-        if (videoLayer) {
-          log("Trovato layer video: " + videoLayerNames[v]);
-          break;
-        }
-      } catch(e) {}
-    }
-
-    if (videoLayer) {
-      try {
-        var newVideoFile = new File(videoPath);
-        if (newVideoFile.exists) {
-          log("File video trovato: " + videoPath);
-          var importedVideo = app.project.importFile(new ImportOptions(newVideoFile));
-          videoLayer.replaceSource(importedVideo, false);
-          
-          // AUTO-ZOOM
-          var compWidth = comp.width;
-          var compHeight = comp.height;
-          var videoWidth = importedVideo.width;
-          var videoHeight = importedVideo.height;
-          var compRatio = compWidth / compHeight;
-          var videoRatio = videoWidth / videoHeight;
-          var scaleToFill = 100;
-          
-          if (videoRatio < compRatio) {
-            scaleToFill = (compWidth / videoWidth) * 100;
-          } else {
-            scaleToFill = (compHeight / videoHeight) * 100;
-          }
-          
-          videoLayer.property("Scale").setValue([scaleToFill, scaleToFill]);
-          log("Video scalato a " + scaleToFill.toFixed(1) + "%");
-          
-          // Aggiorna durata comp
-          var D = importedVideo.duration;
-          comp.duration = D;
-          videoLayer.startTime = 0;
-          videoLayer.inPoint = 0;
-          videoLayer.outPoint = D;
-          log("Durata comp: " + D.toFixed(2) + "s");
-          
-          updateStatus(40, "rendering");
-        } else {
-          log("ERRORE: File video non trovato: " + videoPath);
-        }
-      } catch(errVideo) {
-        log("ERRORE sostituzione video: " + errVideo.toString());
-      }
-    } else {
-      log("ATTENZIONE: Nessun layer video trovato");
-    }
-  } else {
-    log("Nessun video nel JSON");
-  }
-
-  // OUTRO STAGIONALE
-  var season = data.season || 'inverno';
-  log("Stagione: " + season);
-  log("Durata comp corrente: " + comp.duration.toFixed(2) + "s");
-
-  var allSeasons = ['INVERNO', 'AUTUNNO', 'PRIMAVERA', 'ESTATE'];
-  for (var s = 0; s < allSeasons.length; s++) {
-    try {
-      var tempOutro = comp.layer('OUTRO_' + allSeasons[s]);
-      if (tempOutro) {
-        tempOutro.enabled = false;
-        log("Disabilitato: OUTRO_" + allSeasons[s]);
-      }
-    } catch(e) {
-      log("OUTRO_" + allSeasons[s] + " non trovato (ok)");
-    }
-  }
-
-  var outro = null;
-  var outroLayerName = 'OUTRO_' + season.toUpperCase();
-  log("Cerco layer: " + outroLayerName);
-
+  // ✅ CHIUSURA SICURA (NO LOOP)
+  log("--- CHIUSURA PROGETTI ---");
   try {
-    outro = comp.layer(outroLayerName);
-    if (outro) {
-      outro.enabled = true;
-      log("Attivato: " + outroLayerName);
-    } else {
-      log("Layer null: " + outroLayerName);
+    if (app.project) {
+      log("Chiudo progetto corrente...");
+      app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
+      log("✅ Chiuso");
     }
   } catch(e) {
-    log("ERRORE: " + outroLayerName + " - " + e.toString());
+    log("⚠️ Ignoro errore chiusura: " + e.toString());
   }
 
-  if (outro) {
-    var compDuration = comp.duration;
-    var outroDuration = outro.source ? outro.source.duration : 6.0;
-    var outroStart = compDuration - outroDuration;
-    if (outroStart < 0) outroStart = 0;
-    
-    outro.startTime = outroStart;
-    outro.inPoint = outroStart;
-    outro.outPoint = compDuration;
-    log("OUTRO posizionato: start=" + outroStart.toFixed(2) + "s");
-  } else {
-    log("OUTRO non posizionato (layer null)");
-  }
-
-  // PRODOTTO
-  updateStatus(45, "rendering");
-  var layerProdotto = comp.layer(NOME_LIV_PROD);
-  if (layerProdotto) {
-    var prop = layerProdotto.property("Source Text");
-    var doc = prop.value;
-    doc.text = data.product_name ? String(data.product_name) : "NOME PRODOTTO";
-    prop.setValue(doc);
-    log("Prodotto: " + doc.text);
-  }
-
-  // HERO TEXT
-  updateStatus(50, "rendering");
-  var heroLayer = comp.layer(NOME_LIV_HERO);
-  if (!heroLayer) {
-    alert("ERRORE: TEXT_TEMPLATE non trovato!");
-    updateStatus(0, "failed", "TEXT_TEMPLATE non trovato");
-    return;
-  }
-
-  if (!data.hero_lines || data.hero_lines.length === 0) {
-    alert("ERRORE: Nessuna hero_line!");
-    updateStatus(0, "failed", "Nessuna hero_line");
-    return;
-  }
-
-  log("Generazione " + data.hero_lines.length + " hero lines");
-  var startPos = heroLayer.position.value;
-  var startTime = heroLayer.startTime;
-  heroLayer.enabled = false;
-
-  for (var i = 0; i < data.hero_lines.length; i++) {
-    var lineData = data.hero_lines[i];
-    var textContent = "";
-    var useBold = true;
-
-    if (typeof lineData === "string") {
-      textContent = lineData;
-    } else if (typeof lineData === "object" && lineData !== null) {
-      textContent = lineData.text || "";
-      if (lineData.is_bold === false) useBold = false;
+  // Apertura template
+  log("--- APERTURA TEMPLATE ---");
+  log("Path: " + tplFile.fsName);
+  app.open(tplFile);
+  log("✅ Template aperto");
+  
+  // Trova MASTER_RENDER
+  var comp = null;
+  for (var i = 1; i <= app.project.items.length; i++) {
+    if (app.project.items[i].name === "MASTER_RENDER" && app.project.items[i] instanceof CompItem) {
+      comp = app.project.items[i];
+      break;
     }
+  }
 
-    log("Hero " + (i+1) + ": " + textContent);
+  if (!comp) {
+    throw new Error("MASTER_RENDER non trovato!");
+  }
 
-    var newLayer = heroLayer.duplicate();
-    newLayer.name = "GEN_RIGA_" + (i + 1);
-    newLayer.enabled = true;
+  log("✅ Comp: " + comp.name);
+  updateStatus(25, "rendering");
 
-    var textProp = newLayer.property("Source Text");
+  // =====================================================
+  // A. VIDEO INPUT
+  // =====================================================
+  log("--- VIDEO INPUT ---");
+  var videoPath = data.input_video_path || data.video_path;
+  
+  if (videoPath) {
     try {
-      var textDoc = textProp.value;
-      textDoc.text = textContent;
-      textDoc.font = useBold ? FONT_BOLD : FONT_REGULAR;
-      textProp.setValue(textDoc);
-    } catch(errFont) {
-      log("Font fallito");
-      var fallbackDoc = textProp.value;
-      fallbackDoc.text = textContent;
-      textProp.setValue(fallbackDoc);
+      var grpVideo = comp.layer("GRP_INPUT_VIDEO");
+      var vidFile = new File(videoPath);
+      
+      if (vidFile.exists) {
+        log("Importazione video...");
+        var importOpts = new ImportOptions(vidFile);
+        var vidItem = app.project.importFile(importOpts);
+        
+        grpVideo.replaceSource(vidItem, false);
+        
+        // Auto-fit
+        var compRatio = comp.width / comp.height;
+        var videoRatio = vidItem.width / vidItem.height;
+        var scaleToFill = (videoRatio < compRatio) ? 
+          (comp.width / vidItem.width) * 100 : 
+          (comp.height / vidItem.height) * 100;
+        
+        grpVideo.property("Scale").setValue([scaleToFill, scaleToFill]);
+        grpVideo.property("Position").setValue([comp.width/2, comp.height/2]);
+        
+        comp.duration = vidItem.duration;
+        grpVideo.startTime = 0;
+        grpVideo.inPoint = 0;
+        grpVideo.outPoint = vidItem.duration;
+        log("✅ Video OK, durata: " + vidItem.duration.toFixed(2) + "s");
+      }
+    } catch(e) {
+      log("💥 Errore video: " + e.toString());
     }
+  }
+  
+  updateStatus(40, "rendering");
 
-    newLayer.position.setValue([startPos[0], startPos[1] + (i * SPAZIATURA_Y)]);
-    newLayer.startTime = startTime + (i * DELAY_TEMPO);
+  // =====================================================
+  // B. HERO TEXT
+  // =====================================================
+  log("--- HERO TEXT ---");
+  
+  try {
+    var grpHero = comp.layer("GRP_HERO");
+    
+    if (grpHero && grpHero.source instanceof CompItem) {
+      var heroComp = grpHero.source;
+      var heroTemplate = heroComp.layer("TXT_HERO_TITLE");
+      var heroLines = data.hero_lines || [];
+      
+      if (heroLines.length > 0) {
+        var startPos = heroTemplate.position.value;
+        var startTime = heroTemplate.startTime;
+        heroTemplate.enabled = false;
 
-    if (newLayer.trackMatteType != TrackMatteType.NO_TRACK_MATTE) {
-      newLayer.trackMatteType = TrackMatteType.NO_TRACK_MATTE;
-    }
+        for (var i = 0; i < heroLines.length; i++) {
+          var lineData = heroLines[i];
+          var textContent = "";
+          var useBold = true;
 
-    var myMasks = newLayer.property("Masks");
-    if (myMasks && myMasks.numProperties > 0) {
-      for (var m = myMasks.numProperties; m >= 1; m--) {
-        myMasks.property(m).remove();
+          if (typeof lineData === "string") {
+            textContent = lineData;
+          } else if (typeof lineData === "object" && lineData !== null) {
+            textContent = lineData.text || "";
+            if (lineData.is_bold === false) useBold = false;
+          }
+
+          var newLayer = heroTemplate.duplicate();
+          newLayer.name = "GEN_RIGA_" + (i + 1);
+          newLayer.enabled = true;
+
+          var textProp = newLayer.property("Source Text");
+          try {
+            var textDoc = textProp.value;
+            textDoc.text = textContent;
+            textDoc.font = useBold ? FONT_BOLD : FONT_REGULAR;
+            textProp.setValue(textDoc);
+          } catch(errFont) {
+            var fallbackDoc = textProp.value;
+            fallbackDoc.text = textContent;
+            textProp.setValue(fallbackDoc);
+          }
+
+          newLayer.position.setValue([startPos[0], startPos[1] + (i * SPAZIATURA_Y)]);
+          newLayer.startTime = startTime + (i * DELAY_TEMPO);
+
+          if (newLayer.trackMatteType != TrackMatteType.NO_TRACK_MATTE) {
+            newLayer.trackMatteType = TrackMatteType.NO_TRACK_MATTE;
+          }
+          var myMasks = newLayer.property("Masks");
+          if (myMasks && myMasks.numProperties > 0) {
+            for (var m = myMasks.numProperties; m >= 1; m--) {
+              myMasks.property(m).remove();
+            }
+          }
+        }
+        log("✅ Hero lines: " + heroLines.length);
       }
     }
-
-    var progressRighe = 50 + Math.floor((i / data.hero_lines.length) * 15);
-    updateStatus(progressRighe, "rendering");
+  } catch(e) {
+    log("💥 Errore hero: " + e.toString());
   }
 
-  log("Hero lines completate");
-  updateStatus(70, "rendering");
+  updateStatus(50, "rendering");
 
-  // RENDER
+  // =====================================================
+  // C. PRODOTTO
+  // =====================================================
+  log("--- PRODOTTO ---");
+  
+  try {
+    var grpLabel = comp.layer("GRP_LABEL");
+    
+    if (grpLabel && grpLabel.source instanceof CompItem) {
+      var labelComp = grpLabel.source;
+      var labelText = null;
+      
+      try {
+        labelText = labelComp.layer("TXT_LABEL_MAIN");
+      } catch(e) {
+        try {
+          var precomp1 = labelComp.layer("Pre-comp 1");
+          if (precomp1 && precomp1.source instanceof CompItem) {
+            labelText = precomp1.source.layer("TXT_LABEL_MAIN");
+          }
+        } catch(e2) {}
+      }
+      
+      if (labelText) {
+        var prodName = data.product_name || 
+                       (data.products && data.products[0] ? 
+                         (data.products[0].name || data.products[0].product_name) : 
+                         "PRODOTTO");
+        
+        var prop = labelText.property("Source Text");
+        var doc = prop.value;
+        doc.text = String(prodName);
+        prop.setValue(doc);
+        log("✅ Prodotto: " + doc.text);
+      }
+    }
+  } catch(e) {
+    log("💥 Errore prodotto: " + e.toString());
+  }
+
+  updateStatus(60, "rendering");
+
+  // =====================================================
+  // =====================================================
+  // D. OUTRO
+  // =====================================================
+  log("--- OUTRO ---");
+  var season = data.season || 'inverno';
+  var seasonMap = {
+    'inverno': 'WINTER',
+    'autunno': 'AUTUMN',
+    'primavera': 'SPRING',
+    'estate': 'SUMMER'
+  };
+  var targetKeyword = seasonMap[season.toLowerCase()] || 'WINTER';
+
+  try {
+    var grpOutros = comp.layer("GRP_OUTROS");
+    
+    if (grpOutros && grpOutros.source instanceof CompItem) {
+      var outroComp = grpOutros.source;
+      log("Precomp GRP_OUTROS: " + outroComp.duration.toFixed(2) + "s");
+      
+      // Disabilita tutti
+      for (var j = 1; j <= outroComp.numLayers; j++) {
+        var ly = outroComp.layer(j);
+        if (ly.name.indexOf("MOD_OUTRO_") !== -1) {
+          ly.enabled = false;
+          log("❌ " + ly.name);
+        }
+      }
+      
+      // Abilita solo quello giusto
+      var outroLayer = outroComp.layer("MOD_OUTRO_" + targetKeyword);
+      outroLayer.enabled = true;
+      log("✅ Attivato: " + outroLayer.name);
+      
+      // ✅ FIX: Usa la durata del LAYER attivo, non della precomp
+      var outroDuration = 6.0;  // Default
+      
+      if (outroLayer.source && outroLayer.source instanceof CompItem) {
+        // Se il layer è una precomp, usa la sua durata
+        outroDuration = outroLayer.source.duration;
+        log("Durata da source: " + outroDuration.toFixed(2) + "s");
+      } else {
+        // Altrimenti calcola dalla lunghezza del layer
+        outroDuration = outroLayer.outPoint - outroLayer.inPoint;
+        log("Durata da layer timing: " + outroDuration.toFixed(2) + "s");
+      }
+      
+      log("Durata comp: " + comp.duration.toFixed(2) + "s");
+      
+      // Reset timing del layer dentro la precomp
+      outroLayer.startTime = 0;
+      outroLayer.inPoint = 0;
+      outroLayer.outPoint = outroComp.duration;
+      
+      // Posiziona GRP_OUTROS per far coincidere la fine
+      grpOutros.enabled = true;
+      
+      var outroStart = comp.duration - outroDuration;
+      log("Outro start calcolato: " + outroStart.toFixed(2) + "s");
+      
+      grpOutros.startTime = outroStart;
+      
+      if (outroStart < 0) {
+        grpOutros.inPoint = 0;
+        grpOutros.outPoint = comp.duration;
+        log("⚠️ Outro più lungo, tagliato");
+      } else {
+        grpOutros.inPoint = outroStart;
+        grpOutros.outPoint = comp.duration;
+      }
+      
+      log("✅ OUTRO POSIZIONATO:");
+      log("  Layer: " + targetKeyword);
+      log("  startTime: " + grpOutros.startTime.toFixed(2) + "s");
+      log("  inPoint: " + grpOutros.inPoint.toFixed(2) + "s");
+      log("  outPoint: " + grpOutros.outPoint.toFixed(2) + "s");
+      log("  Durata effettiva: " + outroDuration.toFixed(2) + "s");
+    }
+  } catch(e) {
+    log("💥 Errore outro: " + e.toString());
+  }
+
+  // =====================================================
+  // E. RENDER
+  // =====================================================
+  log("--- RENDER ---");
+  
   while (app.project.renderQueue.numItems > 0) {
     app.project.renderQueue.item(1).remove();
   }
@@ -345,14 +402,18 @@ try {
   var rqItem = app.project.renderQueue.items.add(comp);
   var outputModule = rqItem.outputModule(1);
   var outputPath = data.output_path || (baseFolder + "/_temp_data/renders/output_" + data.job_id + ".mp4");
-  outputModule.file = new File(outputPath);
+  
+  var outFile = new File(outputPath);
+  if (outFile.exists) outFile.remove();
+  outputModule.file = outFile;
 
-  log("Render avviato: " + outputPath);
+  log("🎬 Render...");
   updateStatus(75, "rendering");
-
+  
   app.project.renderQueue.render();
-
-  log("Render completato!");
+  
+  log("✅ COMPLETATO");
+  updateStatus(100, "completed");
 
   var finalVideoName = "output_" + data.job_id + ".mp4";
   var finalStatus = new File(statusPath);
@@ -365,19 +426,17 @@ try {
   };
   finalStatus.write(toJSON(finalObj));
   finalStatus.close();
-  log("Status finale scritto");
 
   app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
-  log("Progetto chiuso");
-
-  $.sleep(2000);
-  log("Quit in 2s");
+  log("=== FINE ===");
+  
+  $.sleep(1000);
   app.quit();
 
 } catch (e) {
-  var errorMsg = e.toString() + " (Linea: " + e.line + ")";
+  var errorMsg = e.toString() + (e.line ? " (Linea: " + e.line + ")" : "");
   alert("CRASH: " + errorMsg);
-  log("CRASH: " + errorMsg);
+  log("💥 CRASH: " + errorMsg);
   updateStatus(0, "failed", errorMsg);
 }
 
